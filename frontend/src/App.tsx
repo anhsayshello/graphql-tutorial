@@ -1,78 +1,81 @@
-import axios from "axios";
 import classNames from "classnames";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useRef, useState } from "react";
+import { useMutation, useQuery } from "@apollo/client";
+import { ALL_PERSONS, FIND_PERSON } from "./graphql/queries/person";
+import { CREATE_PERSON } from "./graphql/mutations/createPerson";
 
 interface Person {
   name: string;
-  phone: string;
+  phone?: string;
   id: string;
+  address: {
+    street: string;
+    city: string;
+  };
 }
 
-const URL = "http://localhost:3001/api/persons";
-
 const App = () => {
-  const [persons, setPersons] = useState<Person[]>([]);
-  const [newName, setNewName] = useState("");
-  const [newPhone, setNewPhone] = useState("");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [street, setStreet] = useState("");
+  const [city, setCity] = useState("");
+
   const [isChanging, setIsChanging] = useState(false);
   const [personId, setPersonId] = useState("");
-  const [info, setInfo] = useState("");
-  const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [nameToSearch, setNameToSearch] = useState("");
+
+  // query
+  const { data: dataAllPersons, loading: dataAllPersonsLoading } =
+    useQuery(ALL_PERSONS);
+  console.log("data: ", dataAllPersons);
+  const allPersons: Person[] = dataAllPersons?.allPersons ?? [];
+
+  const { data: dataPerson } = useQuery(FIND_PERSON, {
+    variables: { nameToSearch },
+    skip: !nameToSearch,
+  });
+  console.log(dataPerson);
+  const person: Person = dataPerson?.findPerson ?? [];
+
+  // mutation
+  const [createPerson] = useMutation(CREATE_PERSON, {
+    refetchQueries: [{ query: ALL_PERSONS }],
+    onError: (error) => {
+      console.log(error);
+      const messages = error.graphQLErrors.map((e) => e.message).join("\n");
+      setErrorMessage(messages);
+    },
+  });
 
   const nameRef = useRef<HTMLInputElement>(null);
 
-  const fetchPersons = useCallback(async () => {
-    try {
-      const res = await axios.get(URL);
-      console.log(res);
-      setPersons(res.data);
-    } catch (error) {
-      console.error("Error fetching persons:", error);
-      alert("Không thể tải danh sách người dùng");
-    }
-  }, []);
-
-  const fetchInfo = useCallback(async () => {
-    try {
-      const res = await axios.get("http://localhost:3001/api/persons/info");
-      setInfo(res.data);
-    } catch (error) {
-      console.error("Error fetching info:", error);
-    }
-  }, []);
-
-  const refreshData = useCallback(async () => {
-    await Promise.all([fetchPersons(), fetchInfo()]);
-  }, [fetchPersons, fetchInfo]);
-
-  useEffect(() => {
-    refreshData();
-  }, [refreshData]);
-
-  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setNewName(e.target.value);
-  };
-
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setNewPhone(e.target.value);
-  };
-
   const resetForm = () => {
-    setNewName("");
-    setNewPhone("");
+    setName("");
+    setPhone("");
+    setStreet("");
+    setCity("");
     setIsChanging(false);
     setPersonId("");
   };
 
   const validateInput = (): boolean => {
-    if (!newName.trim()) {
+    if (!name.trim()) {
       alert("Vui lòng nhập tên");
       nameRef.current?.focus();
       return false;
     }
-    if (!newPhone.trim()) {
+    if (!phone.trim()) {
       alert("Vui lòng nhập số điện thoại");
+      return false;
+    }
+    if (!street.trim()) {
+      alert("Vui lòng nhập tên street");
+      nameRef.current?.focus();
+      return false;
+    }
+    if (!city.trim()) {
+      alert("Vui lòng nhập city");
       return false;
     }
     return true;
@@ -80,85 +83,37 @@ const App = () => {
 
   const addPerson = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!validateInput()) return;
 
-    setLoading(true);
-
-    try {
-      if (isChanging) {
-        await axios.put(`${URL}/${personId}`, {
-          name: newName.trim(),
-          phone: newPhone.trim(),
-        });
-        alert("Cập nhật thành công!");
-      } else {
-        await axios.post(URL, {
-          name: newName.trim(),
-          phone: newPhone.trim(),
-        });
-        alert("Thêm người dùng thành công!");
-      }
-
-      await refreshData();
+    if (isChanging) {
+      alert("Cập nhật thành công!");
       resetForm();
-    } catch (error: any) {
-      console.error("Error:", error);
-      const errorMessage = error.response?.data?.error || "Có lỗi xảy ra";
-      setErrorMessage(errorMessage);
-    } finally {
-      setLoading(false);
+    } else {
+      const result = await createPerson({
+        variables: { name, phone, street, city },
+      });
+      console.log(result);
+      if (result.errors || !result.data) {
+        console.error("Mutation errors:", result.errors);
+        return;
+      }
+      alert("Thêm người dùng success!");
+      resetForm();
     }
   };
 
   const changePerson = (person: Person) => {
     setPersonId(person.id);
     setIsChanging(true);
-    setNewName(person.name);
-    setNewPhone(person.phone);
+    setName(person.name);
+    setPhone(person.phone as string);
+    setStreet(person.address.street);
+    setCity(person.address.city);
     nameRef.current?.focus();
-  };
-
-  const deletePerson = async (id: string, name: string) => {
-    if (!confirm(`Bạn có chắc muốn xóa ${name}?`)) return;
-
-    try {
-      await axios.delete(`${URL}/${id}`);
-      alert("Xóa người dùng thành công!");
-
-      // Optimistic update
-      setPersons((prev) => prev.filter((person) => person.id !== id));
-
-      if (id === personId) {
-        resetForm();
-      }
-
-      await fetchInfo(); // Chỉ cần update info
-    } catch (error: any) {
-      console.error("Error:", error);
-      alert("Xóa người dùng thất bại!");
-      // Refresh data để đảm bảo state đúng
-      await refreshData();
-    }
-  };
-
-  const goToPerson = async (id: string) => {
-    try {
-      const res = await axios.get(`${URL}/${id}`);
-      console.log("Person details:", res.data);
-    } catch (error) {
-      console.error("Error fetching person:", error);
-      alert("Không thể tải thông tin người dùng");
-    }
   };
 
   return (
     <div className="max-w-2xl mx-auto p-4">
-      <div
-        className="my-4 text-sm text-gray-700 bg-gray-50 p-3 rounded"
-        dangerouslySetInnerHTML={{ __html: info }}
-      />
-
       <div className="flex justify-center items-center mt-8">
         <div className="w-full max-w-md">
           <h2 className="text-2xl font-bold mb-4">Phonebook</h2>
@@ -169,10 +124,10 @@ const App = () => {
               <input
                 ref={nameRef}
                 className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                value={newName}
-                onChange={handleNameChange}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 placeholder="Nhập tên..."
-                disabled={loading}
+                disabled={dataAllPersonsLoading}
               />
             </div>
 
@@ -182,10 +137,30 @@ const App = () => {
               </label>
               <input
                 className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                value={newPhone}
-                onChange={handlePhoneChange}
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
                 placeholder="Nhập số điện thoại..."
-                disabled={loading}
+                disabled={dataAllPersonsLoading}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Street:</label>
+              <input
+                className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={street}
+                onChange={(e) => setStreet(e.target.value)}
+                placeholder="Nhập street..."
+                disabled={dataAllPersonsLoading}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">City:</label>
+              <input
+                className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                placeholder="Nhập city..."
+                disabled={dataAllPersonsLoading}
               />
             </div>
 
@@ -194,14 +169,20 @@ const App = () => {
                 className={classNames(
                   "px-4 py-2 rounded font-medium transition-colors",
                   {
-                    "bg-blue-500 text-white hover:bg-blue-600": !loading,
-                    "bg-gray-300 text-gray-500 cursor-not-allowed": loading,
+                    "bg-blue-500 text-white hover:bg-blue-600":
+                      !dataAllPersonsLoading,
+                    "bg-gray-300 text-gray-500 cursor-not-allowed":
+                      dataAllPersonsLoading,
                   }
                 )}
                 type="submit"
-                disabled={loading}
+                disabled={dataAllPersonsLoading}
               >
-                {loading ? "Đang xử lý..." : isChanging ? "Cập nhật" : "Thêm"}
+                {dataAllPersonsLoading
+                  ? "Đang xử lý..."
+                  : isChanging
+                  ? "Cập nhật"
+                  : "Thêm"}
               </button>
 
               {isChanging && (
@@ -209,23 +190,64 @@ const App = () => {
                   type="button"
                   className="px-3 py-2 border rounded hover:bg-gray-50 transition-colors"
                   onClick={resetForm}
-                  disabled={loading}
+                  disabled={dataAllPersonsLoading}
                 >
                   Hủy
                 </button>
               )}
             </div>
           </form>
+          <div className="my-4">
+            <h2 className="text-2xl font-bold mb-4">Tìm kiếm</h2>
+            <div className="flex items-center gap-8">
+              <input
+                type="text"
+                className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="enter a name to search"
+                value={nameToSearch}
+                onChange={(e) => setNameToSearch(e.target.value)}
+              />
+            </div>
+            <div className="mt-4">
+              <div
+                key={person.id}
+                className={classNames(
+                  "flex items-center gap-4 p-3 rounded transition-colors",
+                  {
+                    "bg-blue-50 border border-blue-200": person.id === personId,
+                    "bg-gray-50 hover:bg-gray-100": person.id !== personId,
+                  }
+                )}
+              >
+                <button className="font-medium text-blue-600 hover:text-blue-800 transition-colors">
+                  {person.name}
+                </button>
+
+                <span className="text-gray-600 flex-1">{person.phone}</span>
+
+                <button
+                  className="px-3 py-1 text-sm border rounded hover:bg-gray-50 transition-colors"
+                  onClick={() => changePerson(person)}
+                >
+                  Sửa
+                </button>
+
+                <button className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded hover:bg-red-50 transition-colors">
+                  Xóa
+                </button>
+              </div>
+            </div>
+          </div>
 
           <h2 className="text-2xl font-bold mb-4">Danh sách</h2>
 
-          {persons.length === 0 ? (
+          {allPersons.length === 0 ? (
             <p className="text-gray-500 text-center py-4">
               Chưa có người dùng nào
             </p>
           ) : (
             <ul className="space-y-2 h-100 overflow-y-scroll">
-              {persons.map((person) => (
+              {allPersons.map((person) => (
                 <li
                   key={person.id}
                   className={classNames(
@@ -237,10 +259,7 @@ const App = () => {
                     }
                   )}
                 >
-                  <button
-                    onClick={() => goToPerson(person.id)}
-                    className="font-medium text-blue-600 hover:text-blue-800 transition-colors"
-                  >
+                  <button className="font-medium text-blue-600 hover:text-blue-800 transition-colors">
                     {person.name}
                   </button>
 
@@ -253,10 +272,7 @@ const App = () => {
                     Sửa
                   </button>
 
-                  <button
-                    className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded hover:bg-red-50 transition-colors"
-                    onClick={() => deletePerson(person.id, person.name)}
-                  >
+                  <button className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded hover:bg-red-50 transition-colors">
                     Xóa
                   </button>
                 </li>
