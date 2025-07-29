@@ -1,8 +1,15 @@
 import classNames from "classnames";
 import { useRef, useState } from "react";
-import { useMutation, useQuery } from "@apollo/client";
-import { ALL_PERSONS, FIND_PERSON } from "./graphql/queries/person";
-import { CREATE_PERSON } from "./graphql/mutations/createPerson";
+import { useApolloClient, useMutation, useQuery } from "@apollo/client";
+import { ALL_PERSONS, FIND_PERSON } from "./graphql/queries/person.query";
+import {
+  CREATE_PERSON,
+  UPDATE_PERSON,
+} from "./graphql/mutations/person.mutation";
+import Auth from "./pages/Auth";
+import { setTokenToLS } from "./utils/utils";
+import { useAuthenticatedStore } from "./stores/useAuthenticatedStore";
+import { ME } from "./graphql/queries/user.query";
 
 interface Person {
   name: string;
@@ -12,6 +19,11 @@ interface Person {
     street: string;
     city: string;
   };
+}
+
+interface User {
+  username: string;
+  friends: Person[];
 }
 
 const App = () => {
@@ -25,6 +37,10 @@ const App = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [nameToSearch, setNameToSearch] = useState("");
 
+  const client = useApolloClient();
+  const { isAuthenticated, setIsAuthenticated } = useAuthenticatedStore(
+    (state) => state
+  );
   // query
   const { data: dataAllPersons, loading: dataAllPersonsLoading } =
     useQuery(ALL_PERSONS);
@@ -38,8 +54,24 @@ const App = () => {
   console.log(dataPerson);
   const person: Person = dataPerson?.findPerson ?? [];
 
+  const { data: dataMe } = useQuery(ME, {
+    skip: !isAuthenticated,
+  });
+  const friendsList: Person[] = dataMe?.me?.friends ?? [];
+  console.log("me", dataMe);
+  console.log("friendlist", friendsList);
+
   // mutation
   const [createPerson] = useMutation(CREATE_PERSON, {
+    refetchQueries: [{ query: ALL_PERSONS }],
+    onError: (error) => {
+      console.log(error);
+      const messages = error.graphQLErrors.map((e) => e.message).join("\n");
+      setErrorMessage(messages);
+    },
+  });
+
+  const [updatePerson] = useMutation(UPDATE_PERSON, {
     refetchQueries: [{ query: ALL_PERSONS }],
     onError: (error) => {
       console.log(error);
@@ -86,8 +118,14 @@ const App = () => {
     if (!validateInput()) return;
 
     if (isChanging) {
-      alert("Cập nhật thành công!");
-      resetForm();
+      const result = await updatePerson({
+        variables: { name, phone, street, city },
+      });
+      console.log(result);
+      if (!result.errors) {
+        alert("Cập nhật thành công!");
+        resetForm();
+      }
     } else {
       const result = await createPerson({
         variables: { name, phone, street, city },
@@ -112,8 +150,19 @@ const App = () => {
     nameRef.current?.focus();
   };
 
+  const logout = () => {
+    setTokenToLS("");
+    localStorage.clear();
+    setIsAuthenticated(false);
+    client.resetStore();
+  };
+
   return (
     <div className="max-w-2xl mx-auto p-4">
+      <Auth />
+      <button onClick={logout} className="p-2 cursor-pointer">
+        logout
+      </button>
       <div className="flex justify-center items-center mt-8">
         <div className="w-full max-w-md">
           <h2 className="text-2xl font-bold mb-4">Phonebook</h2>
@@ -238,8 +287,39 @@ const App = () => {
               </div>
             </div>
           </div>
+          <h2 className="text-2xl font-bold mb-4">Friend List</h2>
+          <ul className="space-y-2 h-100 overflow-y-scroll">
+            {friendsList.map((friend) => (
+              <li
+                key={friend.id}
+                className={classNames(
+                  "flex items-center gap-4 p-3 rounded transition-colors",
+                  {
+                    "bg-blue-50 border border-blue-200": person.id === personId,
+                    "bg-gray-50 hover:bg-gray-100": person.id !== personId,
+                  }
+                )}
+              >
+                <button className="font-medium text-blue-600 hover:text-blue-800 transition-colors">
+                  {friend.name}
+                </button>
 
-          <h2 className="text-2xl font-bold mb-4">Danh sách</h2>
+                <span className="text-gray-600 flex-1">{friend.phone}</span>
+
+                {/* <button
+                  className="px-3 py-1 text-sm border rounded hover:bg-gray-50 transition-colors"
+                  onClick={() => changePerson(person)}
+                >
+                  Sửa
+                </button>
+
+                <button className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded hover:bg-red-50 transition-colors">
+                  Xóa
+                </button> */}
+              </li>
+            ))}
+          </ul>
+          <h2 className="text-2xl font-bold mb-4">All Person List</h2>
 
           {allPersons.length === 0 ? (
             <p className="text-gray-500 text-center py-4">
