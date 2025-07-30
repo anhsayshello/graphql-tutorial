@@ -1,4 +1,5 @@
 import { gql } from "@apollo/client";
+import { PERSON_DETAIL } from "../queries/person.query";
 
 export const CREATE_PERSON = gql`
   mutation createPerson(
@@ -8,15 +9,10 @@ export const CREATE_PERSON = gql`
     $city: String!
   ) {
     addPerson(name: $name, phone: $phone, street: $street, city: $city) {
-      name
-      phone
-      id
-      address {
-        street
-        city
-      }
+      ...PersonDetail
     }
   }
+  ${PERSON_DETAIL}
 `;
 
 export const UPDATE_PERSON = gql`
@@ -27,12 +23,8 @@ export const UPDATE_PERSON = gql`
     $city: String!
   ) {
     updatePerson(name: $name, phone: $phone, street: $street, city: $city) {
-      name
-      phone
-      address {
-        street
-        city
-      }
+      ...PersonDetail
     }
   }
+  ${PERSON_DETAIL}
 `;
