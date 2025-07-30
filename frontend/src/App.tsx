@@ -1,29 +1,38 @@
 import classNames from "classnames";
 import { useRef, useState } from "react";
-import { useApolloClient, useMutation, useQuery } from "@apollo/client";
-import { ALL_PERSONS, FIND_PERSON } from "./graphql/queries/person.query";
+import {
+  useApolloClient,
+  useMutation,
+  useQuery,
+  useSubscription,
+} from "@apollo/client";
+import {
+  ALL_PERSONS,
+  FIND_PERSON,
+  PERSON_ADDED,
+} from "./graphql/queries/person.query";
 import {
   CREATE_PERSON,
   UPDATE_PERSON,
 } from "./graphql/mutations/person.mutation";
 import Auth from "./pages/Auth";
-import { setTokenToLS } from "./utils/utils";
+import { setTokenToLS, updateCache } from "./utils/utils";
 import { useAuthenticatedStore } from "./stores/useAuthenticatedStore";
 import { ME } from "./graphql/queries/user.query";
-
+interface User {
+  id: string;
+  username: string;
+  friends: Person[];
+}
 interface Person {
   name: string;
   phone?: string;
   id: string;
+  friendOf: User;
   address: {
     street: string;
     city: string;
   };
-}
-
-interface User {
-  username: string;
-  friends: Person[];
 }
 
 const App = () => {
@@ -51,7 +60,7 @@ const App = () => {
     variables: { nameToSearch },
     skip: !nameToSearch,
   });
-  console.log(dataPerson);
+  console.log("findPerson", dataPerson);
   const person: Person = dataPerson?.findPerson ?? [];
 
   const { data: dataMe } = useQuery(ME, {
@@ -63,7 +72,7 @@ const App = () => {
 
   // mutation
   const [createPerson] = useMutation(CREATE_PERSON, {
-    refetchQueries: [{ query: ALL_PERSONS }],
+    refetchQueries: [{ query: ALL_PERSONS }, { query: ME }],
     onError: (error) => {
       console.log(error);
       const messages = error.graphQLErrors.map((e) => e.message).join("\n");
@@ -80,6 +89,14 @@ const App = () => {
     },
   });
 
+  // subscription
+  useSubscription(PERSON_ADDED, {
+    onData: ({ data, client }) => {
+      const addedPerson = data.data.personAdded;
+      alert(`${addedPerson.name} added`);
+      updateCache(client.cache, { query: ALL_PERSONS }, addedPerson);
+    },
+  });
   const nameRef = useRef<HTMLInputElement>(null);
 
   const resetForm = () => {
@@ -97,10 +114,10 @@ const App = () => {
       nameRef.current?.focus();
       return false;
     }
-    if (!phone.trim()) {
-      alert("Vui lòng nhập số điện thoại");
-      return false;
-    }
+    // if (!phone.trim()) {
+    //   alert("Vui lòng nhập số điện thoại");
+    //   return false;
+    // }
     if (!street.trim()) {
       alert("Vui lòng nhập tên street");
       nameRef.current?.focus();
@@ -127,15 +144,15 @@ const App = () => {
         resetForm();
       }
     } else {
-      const result = await createPerson({
-        variables: { name, phone, street, city },
-      });
+      const variables: any = { name, street, city };
+      if (phone) variables.phone = phone;
+      const result = await createPerson({ variables });
+
       console.log(result);
       if (result.errors || !result.data) {
         console.error("Mutation errors:", result.errors);
         return;
       }
-      alert("Thêm người dùng success!");
       resetForm();
     }
   };
@@ -291,7 +308,7 @@ const App = () => {
           <ul className="space-y-2 h-100 overflow-y-scroll">
             {friendsList.map((friend) => (
               <li
-                key={friend.id}
+                key={friend.phone}
                 className={classNames(
                   "flex items-center gap-4 p-3 rounded transition-colors",
                   {
