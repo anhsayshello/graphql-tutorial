@@ -1,5 +1,9 @@
 import Person from "../../models/person.model.js";
 import { GraphQLError } from "graphql";
+import { PubSub } from "graphql-subscriptions";
+import User from "../../models/user.model.js";
+
+const pubsub = new PubSub();
 
 const personResolver = {
   Query: {
@@ -26,8 +30,10 @@ const personResolver = {
       }
       try {
         await person.save();
-        currentUser.friends = currentUser.friends.concat(person);
-        await currentUser.save();
+        if (person.name.length >= 7) {
+          currentUser.friends = currentUser.friends.concat(person);
+          await currentUser.save();
+        }
       } catch (error) {
         throw new GraphQLError("Saving person failed", {
           extensions: {
@@ -37,6 +43,7 @@ const personResolver = {
           },
         });
       }
+      pubsub.publish("PERSON_ADDED", { personAdded: person });
       return person;
     },
     addAsFriend: async (root, args, { currentUser }) => {
@@ -83,6 +90,20 @@ const personResolver = {
       street: root.street,
       city: root.city,
     }),
+    friendOf: async (root) => {
+      const friends = await User.find({
+        friends: {
+          $in: [root._id],
+        },
+      });
+
+      return friends;
+    },
+  },
+  Subscription: {
+    personAdded: {
+      subscribe: () => pubsub.asyncIterableIterator("PERSON_ADDED"),
+    },
   },
 };
 
