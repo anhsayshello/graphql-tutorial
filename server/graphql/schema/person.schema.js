@@ -13,6 +13,7 @@ const personSchema = `
   name: String!
   phone:String
   address: Address!
+  friendOf: [User!]!
   id: ID!
   }
 
@@ -39,5 +40,9 @@ const personSchema = `
     city: String!
     ):Person
   }
+
+  type Subscription {
+  personAdded: Person!
+}    
 `;
 export default personSchema;
