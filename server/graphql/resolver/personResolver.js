@@ -1,7 +1,6 @@
 import Person from "../../models/person.model.js";
 import { GraphQLError } from "graphql";
 import { PubSub } from "graphql-subscriptions";
-import User from "../../models/user.model.js";
 
 const pubsub = new PubSub();
 
@@ -9,10 +8,10 @@ const personResolver = {
   Query: {
     personCount: () => Person.collection.countDocuments(),
     allPersons: async () => {
-      return Person.find({});
+      return Person.find({}).populate("friendOf");
     },
     findPerson: async (root, args) => {
-      return Person.findOne({ name: args.name });
+      return Person.findOne({ name: args.name }).populate("friendOf");
     },
   },
 
@@ -90,15 +89,6 @@ const personResolver = {
       street: root.street,
       city: root.city,
     }),
-    friendOf: async (root) => {
-      const friends = await User.find({
-        friends: {
-          $in: [root._id],
-        },
-      });
-
-      return friends;
-    },
   },
   Subscription: {
     personAdded: {
